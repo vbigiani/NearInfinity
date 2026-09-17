@@ -55,7 +55,7 @@ import org.json.JSONObject;
 /**
  * Reads game resources selected by regular expressions and writes their parsed fields as JSON.
  */
-public final class PrintGameObjectsToJson implements CommandLineTool {
+public final class PrintGameObjectsToXml implements CommandLineTool {
   @Override
   public void run(String fileName) throws Exception {
     JSONObject input = new JSONObject(new String(Files.readAllBytes(Paths.get(fileName)), StandardCharsets.UTF_8));

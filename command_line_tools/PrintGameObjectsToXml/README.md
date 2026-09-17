@@ -1,11 +1,11 @@
-# PrintGameObjectsToJson
+# PrintGameObjectsToXml
 
 Loads resources from an Infinity Engine game and writes their parsed fields to one XML file per resource.
 
 ## Usage
 
 ```bash
-java -jar NearInfinity.jar --run-tool PrintGameObjectsToJson input.json
+java -jar NearInfinity.jar --run-tool PrintGameObjectsToXml input.json
 ```
 
 The input filename is passed to the tool. Relative paths in the JSON document are resolved relative to the directory
@@ -68,6 +68,6 @@ with the same element name and an `id` attribute; numeric suffixes in generated 
 
 ## Example
 
-The [example input](examples/PrintGameObjectsToJson.json) extracts item and spell resources. Run
+The [example input](examples/PrintGameObjectsToXml.json) extracts item and spell resources. Run
 [print-game-objects.bat](examples/print-game-objects.bat) from this directory after changing the game path in the
 sample JSON file and setting its WeiDU executable path.

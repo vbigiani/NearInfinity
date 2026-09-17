@@ -12,4 +12,4 @@ paths should be used by the tool.
 ## Available tools
 
 - [ImageSequenceToBam](ImageSequenceToBam/README.md)
-- [PrintGameObjectsToJson](PrintGameObjectsToJson/README.md)
+- [PrintGameObjectsToXml](PrintGameObjectsToXml/README.md)
