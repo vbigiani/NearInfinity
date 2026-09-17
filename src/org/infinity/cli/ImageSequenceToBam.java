@@ -30,37 +30,16 @@ import org.json.JSONObject;
 /**
  * Converts GIF source images and cycle definitions from JSON into a compressed BAM v1 file.
  */
-public final class ImageSequenceToBam {
+public final class ImageSequenceToBam implements CommandLineTool {
   private static final int PALETTE_SIZE = 256;
   private static final int TRANSPARENT_GREEN = 0xff00ff00;
 
-  private ImageSequenceToBam() {
+  public ImageSequenceToBam() {
   }
 
-  public static void main(String[] args) {
-    try {
-      JSONObject input = readInput(args);
-      convert(input, Paths.get("").toAbsolutePath());
-    } catch (Exception e) {
-      System.err.println("Image sequence conversion failed: " + e.getMessage());
-      System.exit(1);
-    }
-  }
-
-  private static JSONObject readInput(String[] args) throws IOException {
-    if (args.length > 1 || (args.length == 1 && "--help".equals(args[0]))) {
-      throw new IOException("Usage: java -cp NearInfinity.jar org.infinity.cli.ImageSequenceToBam [input.json]");
-    }
-    if (args.length == 1) {
-      return new JSONObject(new String(Files.readAllBytes(Paths.get(args[0])), "UTF-8"));
-    }
-    StringBuilder json = new StringBuilder();
-    byte[] buffer = new byte[8192];
-    int count;
-    while ((count = System.in.read(buffer)) >= 0) {
-      json.append(new String(buffer, 0, count, "UTF-8"));
-    }
-    return new JSONObject(json.toString());
+  public void run(String fileName) throws Exception {
+    JSONObject input = new JSONObject(new String(Files.readAllBytes(Paths.get(fileName)), "UTF-8"));
+    convert(input, Paths.get("").toAbsolutePath());
   }
 
   private static void convert(JSONObject input, Path workingDirectory) throws Exception {

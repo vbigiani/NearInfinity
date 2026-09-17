@@ -50,34 +50,16 @@ ant parser-generate
 
 The JavaCC executable is already included in the Near Infinity sources.
 
-### Command-line image sequence conversion
+### Command-line tools
 
-The image-sequence converter can be run without starting the Swing application. It reads a JSON object from a file
-argument, or from standard input when no argument is supplied, and writes a compressed BAM v1 (`BAMC`) file:
+Run a command-line tool from the `org.infinity.cli` package without starting the Swing application:
 
 ```bash
-java -cp NearInfinity.jar org.infinity.cli.ImageSequenceToBam input.json
+java -jar NearInfinity.jar --run-tool <tool-class> <file>
 ```
 
-The paths in the JSON are relative to the current working directory. Each source object creates one BAM frame from
-the selected GIF frame (GIF frame `0` is used by default):
-
-```json
-{
-  "sources": [
-    { "file": "images/walk-0.gif", "centerX": 16, "centerY": 32 },
-    { "file": "images/walk-1.gif" }
-  ],
-  "cycles": [
-    [0, 1],
-    [1, 0, 1]
-  ],
-  "output": "build/walk.bamc"
-}
-```
-
-`centerX` and `centerY` default to `0`. Use the optional `frame` property to select a frame from an animated GIF.
-Cycle entries are zero-based indexes into `sources`; a cycle must contain at least one frame.
+For tool-specific documentation and examples, see
+[`command_line_tools`](command_line_tools/README.md).
 
 ## Contributors
 

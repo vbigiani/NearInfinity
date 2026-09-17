@@ -31,15 +31,6 @@ ant
 
 The CI build uses JDK 8 and `ant -noinput -buildfile build.xml`. Release packaging is handled by GitHub Actions and external installer assets, not by a local Ant target.
 
-The headless image-sequence converter is invoked from the built jar with:
-
-```bash
-java -cp NearInfinity.jar org.infinity.cli.ImageSequenceToBam input.json
-```
-
-It also accepts the JSON document on standard input. Its `sources` entries are one GIF frame each, with optional
-`frame`, `centerX`, and `centerY` properties; `cycles` contains zero-based source indexes; and `output` names the
-destination. The tool always writes compressed BAM v1 (`BAMC`).
 
 ## Architecture
 
