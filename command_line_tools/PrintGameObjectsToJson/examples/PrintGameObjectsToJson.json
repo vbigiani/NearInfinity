@@ -1,8 +1,12 @@
 {
   "game": "C:/Games/Steam/steamapps/common/Rick_Mod_work/chitin.key",
   "weidu": "C:/Games/Steam/steamapps/common/Rick_Mod_work/weidu.exe",
-  "resources": [
-    "^.*\\.spl$"
+  "resourceRegexp": [
+    "^SPWI8.*\\.spl$"
   ],
-  "output": "C:/Games/Steam/steamapps/common/Rick_Mod_work/game-objects"
+  "looseFiles": [
+    "C:/Games/Steam/steamapps/common/Rick_Mod_work/rick_bigg_mod/copy/BDDAGG1C.EFF"
+  ],
+  "output": "C:/Games/Steam/steamapps/common/Rick_Mod_work/game-objects",
+  "existingFolder": "create_overwrite"
 }

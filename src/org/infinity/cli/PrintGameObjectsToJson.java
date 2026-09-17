@@ -15,11 +15,14 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import javax.xml.stream.XMLOutputFactory;
 import javax.xml.stream.XMLStreamWriter;
@@ -44,6 +47,7 @@ import org.infinity.resource.Profile;
 import org.infinity.resource.Resource;
 import org.infinity.resource.ResourceFactory;
 import org.infinity.resource.StructEntry;
+import org.infinity.resource.key.FileResourceEntry;
 import org.infinity.resource.key.ResourceEntry;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -63,23 +67,19 @@ public final class PrintGameObjectsToJson implements CommandLineTool {
     Path gamePath = resolvePath(workingDirectory, input.optString("game", ""));
     Path weiduPath = resolvePath(workingDirectory, input.optString("weidu", ""));
     Path outputPath = resolvePath(workingDirectory, input.optString("output", ""));
-    JSONArray resourcePatterns = input.optJSONArray("resources");
+    String existingFolder = input.optString("existingFolder", "create_overwrite");
+    JSONArray resourcePatterns = input.optJSONArray("resourceRegexp");
+    JSONArray looseFiles = input.optJSONArray("looseFiles");
     if (!Files.isRegularFile(gamePath) || !"key".equalsIgnoreCase(extension(gamePath))) {
       throw new IOException("The 'game' path must point to a chitin.key file.");
     }
     if (!Files.isRegularFile(weiduPath)) {
       throw new IOException("The 'weidu' path must point to a WeiDU executable.");
     }
-    if (!Files.isDirectory(outputPath)) {
-      throw new IOException("The 'output' path must point to an existing empty folder.");
-    }
-    try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(outputPath)) {
-      if (stream.iterator().hasNext()) {
-        throw new IOException("The 'output' folder must be empty: " + outputPath);
-      }
-    }
-    if (resourcePatterns == null || resourcePatterns.length() == 0) {
-      throw new IOException("The 'resources' array must contain at least one regular expression.");
+    prepareOutputFolder(outputPath, existingFolder);
+    if ((resourcePatterns == null || resourcePatterns.length() == 0)
+        && (looseFiles == null || looseFiles.length() == 0)) {
+      throw new IOException("At least one of 'resourceRegexp' or 'looseFiles' must contain an entry.");
     }
 
     // Initialize AppOption before BrowserMenuBar to avoid the WeiDU default-value initialization cycle.
@@ -91,7 +91,22 @@ public final class PrintGameObjectsToJson implements CommandLineTool {
       throw new IOException("Unable to load game data: " + gamePath);
     }
 
-    Pattern[] patterns = new Pattern[resourcePatterns.length()];
+    int patternCount = resourcePatterns == null ? 0 : resourcePatterns.length();
+    Pattern[] patterns = new Pattern[patternCount];
+    List<ResourceEntry> externalEntries = new ArrayList<>();
+    if (looseFiles != null) {
+      for (int i = 0; i < looseFiles.length(); i++) {
+        String fileNameValue = looseFiles.optString(i, "");
+        if (fileNameValue.trim().isEmpty()) {
+          throw new IOException("Loose file " + i + " must not be empty.");
+        }
+        Path externalPath = resolvePath(workingDirectory, fileNameValue);
+        if (!Files.isRegularFile(externalPath)) {
+          throw new IOException("Loose file does not exist: " + externalPath);
+        }
+        externalEntries.add(new FileResourceEntry(externalPath));
+      }
+    }
     for (int i = 0; i < patterns.length; i++) {
       String expression = resourcePatterns.optString(i, "");
       if (expression.trim().isEmpty()) {
@@ -101,10 +116,21 @@ public final class PrintGameObjectsToJson implements CommandLineTool {
     }
 
     Collection<ResourceEntry> entries = ResourceFactory.getResourceTreeModel().getResourceEntries();
+    List<ResourceEntry> resources = new ArrayList<>(externalEntries);
     for (ResourceEntry entry : entries) {
-      if (!matches(entry.getResourceName(), patterns)) {
-        continue;
+      if (matches(entry.getResourceName(), patterns)) {
+        resources.add(entry);
       }
+    }
+    List<Path> outputFiles = getOutputFiles(outputPath, resources);
+    if ("failOnOverwrite".equals(existingFolder)) {
+      for (Path outputFile : outputFiles) {
+        if (Files.exists(outputFile)) {
+          throw new IOException("Output file already exists: " + outputFile);
+        }
+      }
+    }
+    for (ResourceEntry entry : resources) {
       Resource resource = ResourceFactory.getResource(entry);
       if (resource == null) {
         throw new IOException("Unable to parse resource: " + entry.getResourceName());
@@ -114,9 +140,6 @@ public final class PrintGameObjectsToJson implements CommandLineTool {
           throw new IOException("Resource has no structured fields: " + entry.getResourceName());
         }
         Path outputFile = outputPath.resolve(entry.getResourceName() + ".xml").normalize();
-        if (!outputFile.getParent().equals(outputPath.toAbsolutePath().normalize())) {
-          throw new IOException("Invalid resource filename: " + entry.getResourceName());
-        }
         Files.write(outputFile, structToXml((AbstractStruct) resource).getBytes(StandardCharsets.UTF_8));
       } finally {
         if (resource instanceof Closeable) {
@@ -124,12 +147,67 @@ public final class PrintGameObjectsToJson implements CommandLineTool {
         }
       }
     }
+  }
 
+  private static void prepareOutputFolder(Path outputPath, String existingFolder) throws IOException {
+    Set<String> modes = new HashSet<>();
+    Collections.addAll(modes, "failIfNotEmpty", "failOnOverwrite", "overwrite", "clear", "create_overwrite",
+        "craete_clear");
+    if (!modes.contains(existingFolder)) {
+      throw new IOException("Unknown existingFolder option: " + existingFolder);
+    }
+    if (Files.exists(outputPath) && !Files.isDirectory(outputPath)) {
+      throw new IOException("The 'output' path exists but is not a folder: " + outputPath);
+    }
+    boolean create = existingFolder.startsWith("create_") || "craete_clear".equals(existingFolder);
+    if (!Files.exists(outputPath)) {
+      if (create) {
+        Files.createDirectories(outputPath);
+        return;
+      }
+      throw new IOException("The 'output' folder does not exist: " + outputPath);
+    }
+    if ("failIfNotEmpty".equals(existingFolder) && hasChildren(outputPath)) {
+      throw new IOException("The 'output' folder must be empty: " + outputPath);
+    }
+    if ("clear".equals(existingFolder) || "craete_clear".equals(existingFolder)) {
+      clearFolder(outputPath);
+    }
+  }
+
+  private static boolean hasChildren(Path folder) throws IOException {
+    try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(folder)) {
+      return stream.iterator().hasNext();
+    }
+  }
+
+  private static void clearFolder(Path folder) throws IOException {
+    List<Path> paths;
+    try (java.util.stream.Stream<Path> stream = Files.walk(folder)) {
+      paths = stream.filter(path -> !path.equals(folder))
+          .sorted(Comparator.reverseOrder()).collect(Collectors.toList());
+    }
+    for (Path path : paths) {
+      Files.delete(path);
+    }
+  }
+
+  private static List<Path> getOutputFiles(Path outputPath, List<ResourceEntry> resources) throws IOException {
+    List<Path> outputFiles = new ArrayList<>(resources.size());
+    Path normalizedOutput = outputPath.toAbsolutePath().normalize();
+    for (ResourceEntry entry : resources) {
+      Path outputFile = outputPath.resolve(entry.getResourceName() + ".xml").normalize();
+      if (!normalizedOutput.equals(outputFile.getParent())) {
+        throw new IOException("Invalid resource filename: " + entry.getResourceName());
+      }
+      outputFiles.add(outputFile);
+    }
+    return outputFiles;
   }
 
   private static boolean matches(String name, Pattern[] patterns) {
     for (Pattern pattern : patterns) {
-      if (pattern.matcher(name).matches()) {
+      if (pattern != null && pattern.matcher(name).matches()) {
         return true;
       }
     }
