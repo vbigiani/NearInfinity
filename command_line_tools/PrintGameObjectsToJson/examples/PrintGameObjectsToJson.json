@@ -1,0 +1,8 @@
+{
+  "game": "C:/Games/Steam/steamapps/common/Rick_Mod_work/chitin.key",
+  "weidu": "C:/Games/Steam/steamapps/common/Rick_Mod_work/weidu.exe",
+  "resources": [
+    "^.*\\.spl$"
+  ],
+  "output": "C:/Games/Steam/steamapps/common/Rick_Mod_work/game-objects"
+}
