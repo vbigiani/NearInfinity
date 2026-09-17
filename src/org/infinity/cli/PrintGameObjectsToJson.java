@@ -5,19 +5,34 @@
 package org.infinity.cli;
 
 import java.io.IOException;
+import java.io.StringReader;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Pattern;
+
+import javax.xml.stream.XMLOutputFactory;
+import javax.xml.stream.XMLStreamWriter;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.stream.StreamResult;
+import javax.xml.transform.stream.StreamSource;
 
 import org.infinity.AppOption;
 import org.infinity.datatype.AbstractBitmap;
 import org.infinity.datatype.Flag;
 import org.infinity.datatype.IsNumeric;
-import org.infinity.datatype.IsReference;
 import org.infinity.datatype.IsTextual;
 import org.infinity.datatype.ResourceRef;
 import org.infinity.datatype.ResourceBitmap;
@@ -98,12 +113,11 @@ public final class PrintGameObjectsToJson implements CommandLineTool {
         if (!(resource instanceof AbstractStruct)) {
           throw new IOException("Resource has no structured fields: " + entry.getResourceName());
         }
-        Path outputFile = outputPath.resolve(entry.getResourceName() + ".json").normalize();
+        Path outputFile = outputPath.resolve(entry.getResourceName() + ".xml").normalize();
         if (!outputFile.getParent().equals(outputPath.toAbsolutePath().normalize())) {
           throw new IOException("Invalid resource filename: " + entry.getResourceName());
         }
-        Files.write(outputFile, structToJson((AbstractStruct) resource).toString(2)
-            .getBytes(StandardCharsets.UTF_8));
+        Files.write(outputFile, structToXml((AbstractStruct) resource).getBytes(StandardCharsets.UTF_8));
       } finally {
         if (resource instanceof Closeable) {
           ((Closeable) resource).close();
@@ -122,81 +136,160 @@ public final class PrintGameObjectsToJson implements CommandLineTool {
     return false;
   }
 
-  private static JSONObject structToJson(AbstractStruct struct) {
-    JSONObject result = new JSONObject();
-    for (StructEntry field : struct.getFields()) {
-      putField(result, field.getName(), valueToJson(field));
-    }
-    return result;
+  private static String structToXml(AbstractStruct struct) throws Exception {
+    StringBuilder output = new StringBuilder();
+    XMLStreamWriter writer = XMLOutputFactory.newFactory().createXMLStreamWriter(new StringBuilderWriter(output));
+    writer.writeStartDocument("UTF-8", "1.0");
+    writeStruct(writer, struct, xmlName(struct.getName()), false, -1);
+    writer.writeEndDocument();
+    writer.close();
+    Transformer transformer = TransformerFactory.newInstance().newTransformer();
+    transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+    transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "2");
+    StringWriter pretty = new StringWriter();
+    transformer.transform(new StreamSource(new StringReader(output.toString())), new StreamResult(pretty));
+    return pretty.toString();
   }
 
-  private static void putField(JSONObject object, String name, Object value) {
-    if (!object.has(name)) {
-      object.put(name, value);
-    } else {
-      Object current = object.get(name);
-      if (current instanceof JSONArray) {
-        ((JSONArray) current).put(value);
-      } else {
-        object.put(name, new JSONArray().put(current).put(value));
-      }
+  private static void writeStruct(XMLStreamWriter writer, AbstractStruct struct, String elementName,
+      boolean repeated, int index) throws Exception {
+    writer.writeStartElement(elementName);
+    if (repeated) {
+      writer.writeAttribute("id", Integer.toString(index));
     }
+    List<StructEntry> fields = new ArrayList<>(struct.getFields());
+    Collections.sort(fields, Comparator.comparingInt(StructEntry::getOffset));
+    Map<String, Integer> counts = new HashMap<>();
+    for (StructEntry field : fields) {
+      String name = fieldName(field);
+      counts.put(name, counts.containsKey(name) ? counts.get(name) + 1 : 1);
+    }
+    Map<String, Integer> indices = new HashMap<>();
+    for (StructEntry field : fields) {
+      String name = fieldName(field);
+      int fieldIndex = indices.containsKey(name) ? indices.get(name) : 0;
+      indices.put(name, fieldIndex + 1);
+      writeField(writer, field, counts.get(name) > 1, fieldIndex);
+    }
+    writer.writeEndElement();
   }
 
-  private static Object valueToJson(StructEntry field) {
+  private static void writeField(XMLStreamWriter writer, StructEntry field, boolean repeated, int index)
+      throws Exception {
+    String name = xmlName(fieldName(field));
+    writer.writeStartElement(name);
+    writer.writeAttribute("offset", hex(field.getOffset(), 2));
+    writer.writeAttribute("size", Integer.toString(field.getSize()));
+    if (repeated) {
+      writer.writeAttribute("id", Integer.toString(index));
+    }
     if (field instanceof AbstractStruct) {
-      return structToJson((AbstractStruct) field);
-    }
-    if (field instanceof ResourceRef) {
-      return ((ResourceRef) field).getResourceName();
-    }
-    if (field instanceof ResourceBitmap) {
-      ResourceBitmap bitmap = (ResourceBitmap) field;
-      ResourceBitmap.RefEntry data = bitmap.getDataOf(bitmap.getLongValue());
-      return data == null ? bitmap.getLongValue() : data.getResourceName();
-    }
-    if (field instanceof Flag) {
-      return flagToJson((Flag) field);
-    }
-    if (field instanceof StringRef) {
-      StringRef stringRef = (StringRef) field;
-      return new JSONObject().put("value", stringRef.getLongValue()).put("description", stringRef.getText());
-    }
-    if (field instanceof AbstractBitmap) {
-      AbstractBitmap<?> bitmap = (AbstractBitmap<?>) field;
-      Object data = bitmap.getDataOf(bitmap.getLongValue());
-      JSONObject result = new JSONObject().put("value", bitmap.getLongValue());
-      if (data != null) {
-        result.put("description", data.toString());
+      writeStructContents(writer, (AbstractStruct) field);
+    } else if (field instanceof Flag) {
+      Flag flag = (Flag) field;
+      writer.writeAttribute("value", hex(flag.getLongValue(), field.getSize() * 2));
+      for (int bit = 0; bit < field.getSize() * 8; bit++) {
+        if (flag.isFlagSet(bit)) {
+          writer.writeStartElement(xmlName(flag.getString(bit) == null ? "Bit" + bit : flag.getString(bit)));
+          writer.writeAttribute("bit", Integer.toString(bit));
+          writer.writeCharacters("1");
+          writer.writeEndElement();
+        }
       }
-      return result;
+    } else {
+      writeScalar(writer, field);
     }
-    if (field instanceof IsNumeric) {
-      return ((IsNumeric) field).getLongValue();
-    }
-    if (field instanceof IsTextual) {
-      return ((IsTextual) field).getText();
-    }
-    if (field instanceof IsReference) {
-      return field.toString();
-    }
-    return field.toString();
+    writer.writeEndElement();
   }
 
-  private static JSONObject flagToJson(Flag flag) {
-    long value = flag.getLongValue();
-    int digits = Math.max(1, flag.getSize() * 2);
-    JSONObject result = new JSONObject().put("value", String.format(Locale.ROOT, "0x%0" + digits + "X", value));
-    JSONArray bits = new JSONArray();
-    for (int bit = 0; bit < flag.getSize() * 8; bit++) {
-      if (flag.isFlagSet(bit)) {
-        JSONObject item = new JSONObject().put("bit", bit + 1).put("description", flag.getString(bit))
-            .put("value", 1L << bit);
-        bits.put(item);
-      }
+  private static void writeStructContents(XMLStreamWriter writer, AbstractStruct struct) throws Exception {
+    List<StructEntry> fields = new ArrayList<>(struct.getFields());
+    Collections.sort(fields, Comparator.comparingInt(StructEntry::getOffset));
+    Map<String, Integer> counts = new HashMap<>();
+    for (StructEntry field : fields) {
+      String name = fieldName(field);
+      counts.put(name, counts.containsKey(name) ? counts.get(name) + 1 : 1);
     }
-    return result.put("bits", bits);
+    Map<String, Integer> indices = new HashMap<>();
+    for (StructEntry field : fields) {
+      String name = fieldName(field);
+      int index = indices.containsKey(name) ? indices.get(name) : 0;
+      indices.put(name, index + 1);
+      writeField(writer, field, counts.get(name) > 1, index);
+    }
   }
+
+  private static void writeScalar(XMLStreamWriter writer, StructEntry field) throws Exception {
+    String text = field.toString();
+    if (field instanceof ResourceRef) {
+      writer.writeCharacters(((ResourceRef) field).getResourceName());
+    } else if (field instanceof ResourceBitmap) {
+      ResourceBitmap bitmap = (ResourceBitmap) field;
+      writer.writeAttribute("value", hex(bitmap.getLongValue(), field.getSize() * 2));
+      ResourceBitmap.RefEntry data = bitmap.getDataOf(bitmap.getLongValue());
+      writer.writeCharacters(data == null ? text : data.getResourceName());
+    } else if (field instanceof StringRef) {
+      StringRef stringRef = (StringRef) field;
+      writer.writeAttribute("value", hex(stringRef.getLongValue(), field.getSize() * 2));
+      writer.writeCharacters(stringRef.getText());
+    } else if (field instanceof AbstractBitmap) {
+      AbstractBitmap<?> bitmap = (AbstractBitmap<?>) field;
+      writer.writeAttribute("value", hex(bitmap.getLongValue(), field.getSize() * 2));
+      Object data = bitmap.getDataOf(bitmap.getLongValue());
+      writer.writeCharacters(data == null ? text : data.toString());
+    } else if (field instanceof IsNumeric) {
+      writer.writeAttribute("value", hex(((IsNumeric) field).getLongValue(), field.getSize() * 2));
+      writer.writeCharacters(text);
+    } else if (field instanceof IsTextual) {
+      writer.writeCharacters(((IsTextual) field).getText());
+    } else {
+      writer.writeCharacters(text);
+    }
+  }
+
+  private static String hex(long value, int digits) {
+    return String.format(Locale.ROOT, "0x%0" + Math.max(2, digits) + "X", value);
+  }
+
+  private static String xmlName(String name) {
+    if (name == null || name.isEmpty()) {
+      return "Field";
+    }
+    StringBuilder result = new StringBuilder(name.length());
+    for (int i = 0; i < name.length(); i++) {
+      char c = name.charAt(i);
+      result.append((i == 0 && !Character.isJavaIdentifierStart(c))
+          || (i > 0 && !Character.isJavaIdentifierPart(c)) ? '_' : c);
+    }
+    return result.toString();
+  }
+
+  private static String fieldName(StructEntry field) {
+    String name = field.getName();
+    return name == null ? "Field" : name.replaceFirst("[_ ]+[0-9]+$", "");
+  }
+
+  private static final class StringBuilderWriter extends java.io.Writer {
+    private final StringBuilder builder;
+
+    StringBuilderWriter(StringBuilder builder) {
+      this.builder = builder;
+    }
+
+    @Override
+    public void write(char[] cbuf, int off, int len) {
+      builder.append(cbuf, off, len);
+    }
+
+    @Override
+    public void flush() {
+    }
+
+    @Override
+    public void close() {
+    }
+  }
+
 
   private static Path resolvePath(Path workingDirectory, String value) throws IOException {
     if (value == null || value.trim().isEmpty()) {

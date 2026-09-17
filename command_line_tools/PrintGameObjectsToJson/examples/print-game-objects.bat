@@ -8,5 +8,5 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Created resource JSON files in the output folder from PrintGameObjectsToJson.json
+echo Created resource XML files in the output folder from PrintGameObjectsToJson.json
 endlocal

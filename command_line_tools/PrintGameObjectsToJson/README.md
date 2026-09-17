@@ -1,6 +1,6 @@
 # PrintGameObjectsToJson
 
-Loads resources from an Infinity Engine game and writes their parsed fields to a JSON file.
+Loads resources from an Infinity Engine game and writes their parsed fields to one XML file per resource.
 
 ## Usage
 
@@ -37,15 +37,16 @@ including their extensions, without regard to case. Resources in the override fo
 archives are both considered. If an override resource has the same name as an archived resource, the override version is
 used.
 
-`output` must specify an existing empty folder. One JSON file is created for each matching resource, using the resource
-filename plus `.json`; for example, `sw1h01.itm` is written to `sw1h01.itm.json`. The tool does not create the folder
+`output` must specify an existing empty folder. One XML file is created for each matching resource, using the resource
+filename plus `.xml`; for example, `sw1h01.itm` is written to `sw1h01.itm.xml`. The tool does not create the folder
 and fails if it contains any files or subfolders.
 
-Each matching resource is written as a top-level property keyed by its filename. Fields are represented using the
-parsed Near Infinity structure and field names used by the resource viewer. Nested structures become JSON objects,
-repeated field names become arrays, resource references include their file extensions, and lookup-table values include
-both their numeric value and description. Bitmasks include the hexadecimal value stored in the file and an array of the
-set bits with their bit number, description, and value.
+Each matching resource is written as a pretty-printed XML document. Fields are represented using the parsed Near Infinity
+structure and field names used by the resource viewer. Elements are sorted by file offset and include `offset` and `size`
+attributes. Numeric values, lookup-table values, and dialog.tlk references include a hexadecimal `value` attribute;
+their displayed description is the element text. Resource references use filenames including their extensions.
+Bitmasks include the hexadecimal `value` attribute and nested elements for each set bit. Repeated fields are emitted
+with the same element name and an `id` attribute; numeric suffixes in generated array field names are removed.
 
 ## Example
 
